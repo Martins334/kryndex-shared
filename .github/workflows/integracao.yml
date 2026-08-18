@@ -41,11 +41,17 @@ jobs:
           cache: npm
           cache-dependency-path: consumidor/package-lock.json
 
+      # O npm normaliza dependência de git do GitHub para `git+ssh://` no lockfile, seja
+      # qual for a forma escrita no package.json. Como o runner não tem chave SSH para o
+      # GitHub, reescrevemos as TRÊS formas — cobrir só `https://` deixaria o `npm ci`
+      # falhar em cima justamente do que está no lockfile.
       - name: Autenticar no GitHub para os pacotes privados
         run: |
-          git config --global \
-            "url.https://x-access-token:${{ secrets.GH_READ_TOKEN }}@github.com/.insteadOf" \
-            "https://github.com/"
+          for origem in "https://github.com/" "ssh://git@github.com/" "git@github.com:"; do
+            git config --global \
+              "url.https://x-access-token:${{ secrets.GH_READ_TOKEN }}@github.com/.insteadOf" \
+              "$origem"
+          done
 
       - name: Instalar e apontar o shared para este commit
         working-directory: consumidor
