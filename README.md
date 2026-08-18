@@ -34,3 +34,15 @@ alias: { "@shared": SHARED, "@": ... }
 Fixada por tag. Mudar algo aqui é: commit → tag → bump em cada app que quiser a mudança.
 É o preço de repositórios independentes, e o que impede uma mudança daqui de quebrar os
 três apps de uma vez sem aviso.
+
+## Integração contínua
+
+Este pacote não builda sozinho — é fonte, sem toolchain próprio. O workflow então faz o que
+dá sinal de verdade: pega o `kryndex-site`, aponta o `@kryndex/shared` dele para o commit
+atual e roda tipos, build e smoke. Pega "quebrei o botão" antes de a mudança virar tag.
+
+Ele também **confere o CSS gerado**, que é onde este pacote falha calado: se o `@source` do
+app deixar de enxergar o pacote, o build passa e as telas abrem sem estilo. O workflow exige
+as classes do design system no CSS e um piso de tamanho.
+
+**Secret necessário**: `GH_READ_TOKEN` — o `kryndex-site` é privado e precisa ser baixado.

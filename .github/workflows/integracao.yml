@@ -1,0 +1,87 @@
+name: Integração
+
+# Este pacote não builda sozinho: é FONTE (JSX, classes do Tailwind, um import `?url` do
+# Vite) e não tem toolchain próprio — quem o compila é o Vite de cada app.
+#
+# Então o que dá sinal de verdade é consumi-lo. O workflow pega o informativo, aponta o
+# @kryndex/shared dele para ESTE commit e constrói. É o que pega "quebrei o botão" antes de
+# a mudança virar tag e chegar aos três apps.
+#
+# O informativo é o consumidor escolhido por ser o menor: constrói em segundos e exercita o
+# caminho inteiro (design system, root compartilhado, CSS, SSR).
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consumir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar este pacote
+        uses: actions/checkout@v4
+        with:
+          path: pacote
+
+      - name: Baixar o informativo, que vai consumi-lo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/kryndex-site
+          token: ${{ secrets.GH_READ_TOKEN }}
+          path: consumidor
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: consumidor/package-lock.json
+
+      - name: Autenticar no GitHub para os pacotes privados
+        run: |
+          git config --global \
+            "url.https://x-access-token:${{ secrets.GH_READ_TOKEN }}@github.com/.insteadOf" \
+            "https://github.com/"
+
+      - name: Instalar e apontar o shared para este commit
+        working-directory: consumidor
+        run: |
+          npm ci --legacy-peer-deps
+          # Sobrepõe a versão fixada por tag pelo código deste commit. O `preserveSymlinks`
+          # do vite.config e do tsconfig do app é o que faz o link local resolver react e
+          # radix a partir do node_modules do consumidor.
+          npm install --legacy-peer-deps ../pacote
+
+      - name: Tipos
+        working-directory: consumidor
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: consumidor
+        run: npm run build
+
+      # Executa o bundle do servidor de verdade — é o que pega erro de módulo que `tsc` e
+      # `vite build` deixam passar.
+      - name: Smoke do SSR
+        working-directory: consumidor
+        run: npm run smoke
+
+      # O CSS é onde este pacote falha calado: se o `@source` do app deixar de enxergar o
+      # pacote, o build passa e as telas abrem SEM ESTILO. Um piso de tamanho é o que
+      # transforma isso num erro visível.
+      - name: O CSS saiu com as classes do pacote?
+        working-directory: consumidor
+        run: |
+          css=$(find dist/client/assets -name "*.css" | head -1)
+          tamanho=$(wc -c < "$css")
+          echo "CSS gerado: $css ($tamanho bytes)"
+          for classe in "bg-primary" "ring-offset-background" "border-input"; do
+            grep -q -- "$classe" "$css" || { echo "✗ falta '$classe' — o @source não pegou o pacote"; exit 1; }
+          done
+          # O informativo gera ~68 KB. Abaixo de 40 KB algo deixou de ser varrido.
+          [ "$tamanho" -gt 40000 ] || { echo "✗ CSS pequeno demais ($tamanho bytes)"; exit 1; }
+          echo "✓ classes do pacote presentes"
