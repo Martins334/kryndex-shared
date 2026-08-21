@@ -110,10 +110,34 @@ export async function refreshAccessToken(): Promise<string | null> {
   return _refreshing
 }
 
+// Ponto de extensão para o app da demo. Fica agnóstico de conteúdo de propósito: quem sabe
+// simular OS, produtos, etc. é o painel, não este pacote — aqui só existe o encaixe.
+//
+// `import.meta.env.VITE_APP_MODE` é constante em tempo de build (o Dockerfile da demo define
+// "demo"; dash.kryndex.com nunca define nada). Isso deixa o bundler eliminar o ramo morto: a
+// demo não carrega o `fetch` real que nunca usa, e o painel de produção não carrega o motor
+// de simulação nem os fixtures que o registram — sem inchar o bundle de quem paga.
+type InterceptorDemo = (path: string, init?: RequestInit) => Promise<unknown>
+let interceptorDemo: InterceptorDemo | null = null
+
+export function registrarInterceptorDemo(fn: InterceptorDemo): void {
+  interceptorDemo = fn
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if (import.meta.env.VITE_APP_MODE === 'demo') {
+    if (!interceptorDemo) {
+      throw new Error(
+        `[demo] interceptor não registrado antes da chamada a ${path} — o app da demo precisa ` +
+          'chamar registrarInterceptorDemo() na inicialização, antes de qualquer apiFetch.',
+      )
+    }
+    return interceptorDemo(path, init) as Promise<T>
+  }
+
   const token = getToken()
   const res = await fetch(`${BASE}${path}`, {
     ...init,
